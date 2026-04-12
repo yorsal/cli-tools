@@ -7,7 +7,9 @@
     "crop-images": "./image/crop-images.ts",
     "add-watermark": "./image/add-watermark.ts",
     "remove-watermark": "./image/remove-watermark.ts",
-    "video-convert": "./video/video-convert.ts"
+    "video-convert": "./video/video-convert.ts",
+    "video-transcribe": "./video/video-transcribe.ts",
+    "video-dedup": "./video/video-dedup.ts"
   },
   "scripts": {
     "lint": "eslint . --ext .ts",

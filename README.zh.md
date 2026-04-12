@@ -1,5 +1,7 @@
 # CLI Tools
 
+[English](./README.md)
+
 一个常用的 CLI 工具集合。
 
 ## 工具列表

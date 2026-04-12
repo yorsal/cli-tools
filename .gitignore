@@ -27,5 +27,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+mlx_models/
+
 # AI
 .claude/

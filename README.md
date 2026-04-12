@@ -1,5 +1,7 @@
 # CLI Tools
 
+[中文](./README.zh.md)
+
 A collection of CLI tools for common tasks.
 
 ## Tools
