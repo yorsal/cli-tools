@@ -11,7 +11,7 @@ import fs from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import * as readline from 'readline'
+import { colorize, createInterface, question } from '../src/utils/index.js'
 
 const execAsync = promisify(exec)
 
@@ -54,39 +54,6 @@ Examples:
   tsx video/video-dedup.ts -i input.mp4 -o output_dedup.mp4
   tsx video/video-dedup.ts -i ./videos --yes
 `)
-}
-
-// Color output
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
 }
 
 // Supported video extensions
@@ -150,8 +117,8 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize('❌ 请指定输入: --input <file or directory>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input 请指定输入: --input <file or directory>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
@@ -159,18 +126,18 @@ async function main(): Promise<void> {
 
   // Check if input exists
   if (!fs.existsSync(inputPath)) {
-    console.error(colorize(`❌ 输入路径不存在: ${inputPath}`, 'red'))
+    console.error(colorize(`❌ Input path not found 输入路径不存在: ${inputPath}`, 'red'))
     process.exit(1)
   }
 
   // Check ffmpeg availability
   const hasFfmpeg = await checkFfmpeg()
   if (!hasFfmpeg) {
-    console.error(colorize('❌ 未找到 ffmpeg，请先安装 ffmpeg', 'red'))
-    console.log('   安装方式:')
-    console.log('   macOS: brew install ffmpeg')
-    console.log('   Ubuntu/Debian: sudo apt install ffmpeg')
-    console.log('   Windows: winget install ffmpeg')
+    console.error(colorize('❌ ffmpeg not found, please install ffmpeg first 未找到 ffmpeg，请先安装 ffmpeg', 'red'))
+    console.log(colorize('   Installation 安装方式:', 'gray'))
+    console.log(colorize('   macOS: brew install ffmpeg', 'gray'))
+    console.log(colorize('   Ubuntu/Debian: sudo apt install ffmpeg', 'gray'))
+    console.log(colorize('   Windows: winget install ffmpeg', 'gray'))
     process.exit(1)
   }
 
@@ -180,21 +147,21 @@ async function main(): Promise<void> {
   if (isDir) {
     filesToProcess = getVideoFiles(inputPath)
     if (filesToProcess.length === 0) {
-      console.error(colorize(`❌ 目录中没有找到支持的视频格式`, 'yellow'))
+      console.error(colorize(`❌ No supported videos found in directory 目录中没有找到支持的视频格式`, 'yellow'))
       process.exit(1)
     }
   } else {
     if (!isVideoFile(inputPath)) {
-      console.error(colorize(`❌ 不支持的视频格式: ${inputPath}`, 'red'))
+      console.error(colorize(`❌ Unsupported video format 不支持的视频格式: ${inputPath}`, 'red'))
       process.exit(1)
     }
     filesToProcess = [inputPath]
   }
 
-  console.log(colorize('\n🎬 视频去重工具', 'bright'))
+  console.log(colorize('\n🎬 Video Deduplication Tool 视频去重工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 输入: ${inputPath}`, 'cyan'))
-  console.log(colorize(`🖼️  发现 ${filesToProcess.length} 个视频文件\n`, 'cyan'))
+  console.log(colorize(`📁 Input 输入: ${inputPath}`, 'cyan'))
+  console.log(colorize(`🖼️  Found 发现 ${filesToProcess.length} video files 个视频文件\n`, 'cyan'))
 
   const rl = createInterface()
 
@@ -218,22 +185,22 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(colorize('📋 操作摘要:', 'bright'))
-  console.log(`   输入: ${isDir ? '目录' : '单文件'}`)
-  console.log(`   输出: ${outputPath}`)
-  console.log(`   视频数量: ${filesToProcess.length} 个`)
-  console.log(`   去重参数: mpdecimate=hi=768:lo=640:frac=0.1`)
+  console.log(colorize('📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Input 输入: ${isDir ? 'Directory 目录' : 'Single file 单文件'}`)
+  console.log(`   Output 输出: ${outputPath}`)
+  console.log(`   Videos 视频数量: ${filesToProcess.length} 个`)
+  console.log(`   Dedup parameters 去重参数: mpdecimate=hi=768:lo=640:frac=0.1`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  确认处理? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  Confirm? 确认处理? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
@@ -243,7 +210,7 @@ async function main(): Promise<void> {
   }
 
   // Process videos
-  console.log(colorize('\n🎬 开始处理...\n', 'bright'))
+  console.log(colorize('\n🎬 Processing 处理中...\n', 'bright'))
 
   let successCount = 0
   let failCount = 0
@@ -261,7 +228,7 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${filesToProcess.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${filesToProcess.length}] ${filename} ... `
     )
 
     try {
@@ -278,12 +245,12 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ 处理完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 个`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 个`)
+  console.log(colorize('✅ Done 完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} 个`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 个`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 

@@ -10,7 +10,8 @@
 import fs from 'fs'
 import path from 'path'
 import sharp from 'sharp'
-import * as readline from 'readline'
+import { Interface } from 'readline'
+import { colorize, createInterface, question, getImageFiles, ensureUniqueDir } from '../src/utils/index.js'
 
 // CLI argument types
 interface CliArgs {
@@ -48,10 +49,10 @@ function showHelp(): void {
   console.log(`
 📷 Image Batch Crop Tool
 
-Usage: tsx scripts/crop-images.ts --input <directory> [options]
+Usage: tsx scripts/crop-images.ts --input <file|directory> [options]
 
 Required:
-  --input, -i <directory>    Source image directory
+  --input, -i <path>    Source image file or directory
 
 Options:
   --ratio, -r <ratio>       Crop ratio (e.g. 16:9, 4:3, 1:1)
@@ -70,39 +71,6 @@ Examples:
   tsx scripts/crop-images.ts -i public/images/demo -r 4:3 -m new-dir -o public/images/cropped
   tsx scripts/crop-images.ts -i public/images/demo -r 16:9 -w 1920 -H 1080
 `)
-}
-
-// Color output (same pattern as other scripts)
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper (same pattern as install.ts, setup-env.ts)
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
 }
 
 // Supported crop ratios
@@ -127,16 +95,16 @@ function parseRatio(input: string): [number, number] | null {
   return null
 }
 
-function askRatio(rl: readline.Interface): Promise<string> {
+function askRatio(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 裁剪比例:', 'bright'))
-    console.log('   1) 16:9')
-    console.log('   2) 4:3')
-    console.log('   3) 3:4')
-    console.log('   4) 9:16')
-    console.log('   5) 1:1')
-    console.log('   6) 自定义 (输入 W:H)')
-    question(rl, '\n请选择 (1-6): ').then(answer => {
+    console.log(colorize('\n❓ Crop ratio 裁剪比例:', 'bright'))
+    console.log(colorize('   1) 16:9', 'gray'))
+    console.log(colorize('   2) 4:3', 'gray'))
+    console.log(colorize('   3) 3:4', 'gray'))
+    console.log(colorize('   4) 9:16', 'gray'))
+    console.log(colorize('   5) 1:1', 'gray'))
+    console.log(colorize('   6) Custom 自定义 (input W:H 输入 W:H)', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-6): ', 'bright')).then(answer => {
       switch (answer) {
         case '1': resolve('16:9'); break
         case '2': resolve('4:3'); break
@@ -144,7 +112,7 @@ function askRatio(rl: readline.Interface): Promise<string> {
         case '4': resolve('9:16'); break
         case '5': resolve('1:1'); break
         case '6':
-          question(rl, '请输入比例 (如 3:2): ').then(r => resolve(r))
+          question(rl, colorize('Enter ratio 输入比例 (e.g. 如 3:2): ', 'bright')).then(r => resolve(r))
           break
         default: resolve('16:9')
       }
@@ -152,94 +120,51 @@ function askRatio(rl: readline.Interface): Promise<string> {
   })
 }
 
-function askMode(rl: readline.Interface): Promise<string> {
+function askMode(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出模式:', 'bright'))
-    console.log('   1) 覆盖原图')
-    console.log('   2) 输出到新目录')
-    question(rl, '\n请选择 (1-2): ').then(answer => {
+    console.log(colorize('\n❓ Output mode 输出模式:', 'bright'))
+    console.log(colorize('   1) Overwrite original 覆盖原图', 'gray'))
+    console.log(colorize('   2) Output to new directory 输出到新目录', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-2): ', 'bright')).then(answer => {
       resolve(answer === '2' ? 'new-dir' : 'overwrite')
     })
   })
 }
 
-async function askFormat(rl: readline.Interface): Promise<string> {
-  console.log(colorize('\n❓ 输出格式:', 'bright'))
-  console.log('   1) 保持原格式')
-  console.log('   2) 转为 jpg')
-  console.log('   3) 转为 png')
-  console.log('   4) 转为 webp')
-  const answer = await question(rl, '\n请选择 (1-4): ')
+async function askFormat(rl: Interface): Promise<string> {
+  console.log(colorize('\n❓ Output format 输出格式:', 'bright'))
+  console.log(colorize('   1) Keep original format 保持原格式', 'gray'))
+  console.log(colorize('   2) Convert to jpg 转为 jpg', 'gray'))
+  console.log(colorize('   3) Convert to png 转为 png', 'gray'))
+  console.log(colorize('   4) Convert to webp 转为 webp', 'gray'))
+  const answer = await question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright'))
   const map: Record<string, string> = { '1': 'keep', '2': 'jpg', '3': 'png', '4': 'webp' }
   return map[answer] || 'keep'
 }
 
-async function askMaxSize(rl: readline.Interface): Promise<{ maxWidth?: number; maxHeight?: number }> {
-  console.log(colorize('\n❓ 最大尺寸限制 (可选):', 'bright'))
-  console.log('   1) 不限制')
-  console.log('   2) 限制宽度')
-  console.log('   3) 限制高度')
-  console.log('   4) 限制宽度和高度')
-  const answer = await question(rl, '\n请选择 (1-4): ')
+async function askMaxSize(rl: Interface): Promise<{ maxWidth?: number; maxHeight?: number }> {
+  console.log(colorize('\n❓ Max size limit 最大尺寸限制 (optional 可选):', 'bright'))
+  console.log(colorize('   1) No limit 不限制', 'gray'))
+  console.log(colorize('   2) Limit width 限制宽度', 'gray'))
+  console.log(colorize('   3) Limit height 限制高度', 'gray'))
+  console.log(colorize('   4) Limit width and height 限制宽度和高度', 'gray'))
+  const answer = await question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright'))
 
   if (answer === '1') return {}
   if (answer === '2') {
-    const w = await question(rl, '   请输入最大宽度 (像素): ')
+    const w = await question(rl, colorize('   Enter max width pixels 输入最大宽度 (像素): ', 'bright'))
     return { maxWidth: parseInt(w, 10) }
   }
   if (answer === '3') {
-    const h = await question(rl, '   请输入最大高度 (像素): ')
+    const h = await question(rl, colorize('   Enter max height pixels 输入最大高度 (像素): ', 'bright'))
     return { maxHeight: parseInt(h, 10) }
   }
   if (answer === '4') {
-    const w = await question(rl, '   请输入最大宽度 (像素): ')
-    const h = await question(rl, '   请输入最大高度 (像素): ')
+    const w = await question(rl, colorize('   Enter max width pixels 输入最大宽度 (像素): ', 'bright'))
+    const h = await question(rl, colorize('   Enter max height pixels 输入最大高度 (像素): ', 'bright'))
     return { maxWidth: parseInt(w, 10), maxHeight: parseInt(h, 10) }
   }
   return {}
-}
-
-// Supported image extensions
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.tiff']
-
-function getImageFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) {
-    console.error(colorize(`❌ 目录不存在: ${dir}`, 'red'))
-    process.exit(1)
-  }
-
-  const files = fs.readdirSync(dir)
-  const images = files.filter(file => {
-    const ext = path.extname(file).toLowerCase()
-    return SUPPORTED_EXTENSIONS.includes(ext)
-  })
-
-  if (images.length === 0) {
-    console.error(colorize(`❌ 目录中没有找到支持的图片格式: ${dir}`, 'yellow'))
-    console.log(colorize(`   支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'reset'))
-    process.exit(1)
-  }
-
-  return images.map(f => path.join(dir, f))
-}
-
-function ensureUniqueDir(dir: string): string {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-
-  const base = dir
-  let counter = 1
-  let newDir = `${base}-${counter}`
-
-  while (fs.existsSync(newDir)) {
-    counter++
-    newDir = `${base}-${counter}`
-  }
-
-  fs.mkdirSync(newDir, { recursive: true })
-  return newDir
 }
 
 async function centerCrop(
@@ -261,7 +186,7 @@ async function centerCrop(
     const metadata = await image.metadata()
 
     if (!metadata.width || !metadata.height) {
-      throw new Error(`无法读取图片尺寸: ${inputPath}`)
+      throw new Error(`Cannot read image size 无法读取图片尺寸: ${inputPath}`)
     }
 
     const [targetW, targetH] = targetRatio
@@ -369,18 +294,20 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize('❌ 请指定输入目录: --input <directory>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input 请指定输入目录: --input <directory>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
-  const inputDir = path.resolve(args.input)
-  const imageFiles = getImageFiles(inputDir)
+  const inputPath = path.resolve(args.input)
+  const imageFiles = getImageFiles(inputPath)
 
-  console.log(colorize('\n📷 图片批量裁剪工具', 'bright'))
+  const isSingleFile = fs.statSync(inputPath).isFile()
+
+  console.log(colorize('\n📷 Image Batch Crop Tool 图片批量裁剪工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 输入目录: ${inputDir}`, 'cyan'))
-  console.log(colorize(`🖼️  发现 ${imageFiles.length} 张图片\n`, 'cyan'))
+  console.log(colorize(`📁 Input 输入: ${inputPath}`, 'cyan'))
+  console.log(colorize(`🖼️  Found 发现 ${imageFiles.length} images 张图片\n`, 'cyan'))
 
   const rl = createInterface()
 
@@ -388,17 +315,22 @@ async function main(): Promise<void> {
   const ratioStr = args.ratio || (args.yes ? '16:9' : await askRatio(rl))
   const ratio = parseRatio(ratioStr)
   if (!ratio) {
-    console.error(colorize(`❌ 无效的裁剪比例: ${ratioStr}`, 'red'))
+    console.error(colorize(`❌ Invalid ratio 无效的裁剪比例: ${ratioStr}`, 'red'))
     rl.close()
     process.exit(1)
   }
 
   const mode = (args.mode || (args.yes ? 'overwrite' : await askMode(rl))) as 'overwrite' | 'new-dir'
 
-  let outputDir = inputDir
+  let outputDir = inputPath
   if (mode === 'new-dir') {
-    const targetDir = args.output || path.join(inputDir, 'cropped')
-    outputDir = ensureUniqueDir(targetDir)
+    if (isSingleFile) {
+      const targetDir = args.output || path.join(path.dirname(inputPath), 'cropped')
+      outputDir = ensureUniqueDir(targetDir)
+    } else {
+      const targetDir = args.output || path.join(inputPath, 'cropped')
+      outputDir = ensureUniqueDir(targetDir)
+    }
   }
 
   const format = (mode === 'overwrite' || args.format === 'keep')
@@ -414,31 +346,31 @@ async function main(): Promise<void> {
   const maxHeight = maxSize.maxHeight
 
   // Show summary
-  console.log(colorize('\n📋 操作摘要:', 'bright'))
-  console.log(`   输入目录: ${inputDir}`)
-  console.log(`   输出模式: ${mode === 'overwrite' ? '覆盖原图' : `新目录 (${outputDir})`}`)
-  console.log(`   裁剪比例: ${ratioStr}`)
+  console.log(colorize('\n📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Input 输入: ${inputPath}`)
+  console.log(`   Output mode 输出模式: ${mode === 'overwrite' ? 'Overwrite original 覆盖原图' : `New directory 新目录 (${outputDir})`}`)
+  console.log(`   Crop ratio 裁剪比例: ${ratioStr}`)
   if (maxWidth || maxHeight) {
-    console.log(`   最大尺寸: ${maxWidth || '无'} x ${maxHeight || '无'}`)
+    console.log(`   Max size 最大尺寸: ${maxWidth || 'none 无'} x ${maxHeight || 'none 无'}`)
   }
-  console.log(`   输出格式: ${format === 'keep' ? '保持原格式' : format}`)
-  console.log(`   图片数量: ${imageFiles.length} 张`)
+  console.log(`   Output format 输出格式: ${format === 'keep' ? 'Keep original 保持原格式' : format}`)
+  console.log(`   Images 图片数量: ${imageFiles.length} 张`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  此操作不可撤销，确认执行? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  This cannot be undone. Confirm? 此操作不可撤销，确认执行? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
   // Process images
-  console.log(colorize('\n🖼️  开始处理...\n', 'bright'))
+  console.log(colorize('\n🖼️  Processing 处理中...\n', 'bright'))
 
   let successCount = 0
   let failCount = 0
@@ -452,7 +384,7 @@ async function main(): Promise<void> {
     const outputPath = mode === 'overwrite' ? inputPath : path.join(outputDir, outputFilename)
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
     )
 
     try {
@@ -469,12 +401,12 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ 处理完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 张`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
+  console.log(colorize('✅ Done 完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} 张`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 

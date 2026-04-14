@@ -10,7 +10,8 @@
 import fs from 'fs'
 import path from 'path'
 import sharp from 'sharp'
-import * as readline from 'readline'
+import { Interface } from 'readline'
+import { colorize, createInterface, question, getImageFiles, ensureUniqueDir } from '../src/utils/index.js'
 
 // CLI argument types
 interface CliArgs {
@@ -56,10 +57,10 @@ function showHelp(): void {
   console.log(`
 🖼️  Image Watermark Tool
 
-Usage: tsx image/add-watermark.ts --input <directory> [options]
+Usage: tsx image/add-watermark.ts --input <file|directory> [options]
 
 Required:
-  --input, -i <directory>    Source image directory
+  --input, -i <path>    Source image file or directory
 
 Options (Watermark Source):
   --text, -t <text>          Text watermark (mutually exclusive with --image)
@@ -89,66 +90,33 @@ Examples:
 `)
 }
 
-// Color output
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
+function askWatermarkType(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
-}
-
-function askWatermarkType(rl: readline.Interface): Promise<string> {
-  return new Promise(resolve => {
-    console.log(colorize('\n❓ 水印类型:', 'bright'))
-    console.log('   1) 文字水印')
-    console.log('   2) 图片水印')
-    question(rl, '\n请选择 (1-2): ').then(answer => {
+    console.log(colorize('\n❓ Watermark type 水印类型:', 'bright'))
+    console.log(colorize('   1) Text watermark 文字水印', 'gray'))
+    console.log(colorize('   2) Image watermark 图片水印', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-2): ', 'bright')).then(answer => {
       resolve(answer === '2' ? 'image' : 'text')
     })
   })
 }
 
-function askTextWatermark(rl: readline.Interface): Promise<string> {
-  return question(rl, colorize('\n请输入水印文字: ', 'bright'))
+function askTextWatermark(rl: Interface): Promise<string> {
+  return question(rl, colorize('\nEnter watermark text 输入水印文字: ', 'bright'))
 }
 
-function askImageWatermark(rl: readline.Interface): Promise<string> {
-  return question(rl, colorize('\n请输入水印图片路径: ', 'bright'))
+function askImageWatermark(rl: Interface): Promise<string> {
+  return question(rl, colorize('\nEnter watermark image path 输入水印图片路径: ', 'bright'))
 }
 
-function askPosition(rl: readline.Interface): Promise<string> {
+function askPosition(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 水印位置:', 'bright'))
-    console.log('   1) 左上角    2) 上方居中    3) 右上角')
-    console.log('   4) 左居中    5) 居中        6) 右居中')
-    console.log('   7) 左下角    8) 下方居中    9) 右下角')
-    console.log('   10) 平铺')
-    question(rl, '\n请选择 (1-10): ').then(answer => {
+    console.log(colorize('\n❓ Watermark position 水印位置:', 'bright'))
+    console.log(colorize('   1) Top-left 左上角    2) Top-center 上方居中    3) Top-right 右上角', 'gray'))
+    console.log(colorize('   4) Left-center 左居中    5) Center 居中        6) Right-center 右居中', 'gray'))
+    console.log(colorize('   7) Bottom-left 左下角    8) Bottom-center 下方居中    9) Bottom-right 右下角', 'gray'))
+    console.log(colorize('   10) Tiled 平铺', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-10): ', 'bright')).then(answer => {
       const map: Record<string, string> = {
         '1': 'northwest', '2': 'north', '3': 'northeast',
         '4': 'west', '5': 'center', '6': 'east',
@@ -160,19 +128,19 @@ function askPosition(rl: readline.Interface): Promise<string> {
   })
 }
 
-function askOpacity(rl: readline.Interface): Promise<number> {
+function askOpacity(rl: Interface): Promise<number> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 水印透明度:', 'bright'))
-    console.log('   1) 10% (很淡)')
-    console.log('   2) 30% (淡)')
-    console.log('   3) 50% (中等)')
-    console.log('   4) 70% (较深)')
-    console.log('   5) 自定义')
-    question(rl, '\n请选择 (1-5): ').then(answer => {
+    console.log(colorize('\n❓ Watermark opacity 水印透明度:', 'bright'))
+    console.log(colorize('   1) 10% (very light 很淡)', 'gray'))
+    console.log(colorize('   2) 30% (light 淡)', 'gray'))
+    console.log(colorize('   3) 50% (medium 中等)', 'gray'))
+    console.log(colorize('   4) 70% (dark 较深)', 'gray'))
+    console.log(colorize('   5) Custom 自定义', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-5): ', 'bright')).then(answer => {
       const map: Record<string, number> = { '1': 0.1, '2': 0.3, '3': 0.5, '4': 0.7 }
       if (map[answer]) resolve(map[answer])
       else if (answer === '5') {
-        question(rl, '请输入透明度 (0-1, 如 0.4): ').then(v => {
+        question(rl, colorize('Enter opacity 透明度 (0-1, e.g. 如 0.4): ', 'bright')).then(v => {
           resolve(Math.min(1, Math.max(0, parseFloat(v) || 0.5)))
         })
       } else resolve(0.5)
@@ -180,72 +148,29 @@ function askOpacity(rl: readline.Interface): Promise<number> {
   })
 }
 
-function askFormat(rl: readline.Interface): Promise<string> {
+function askFormat(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出格式:', 'bright'))
-    console.log('   1) 保持原格式')
-    console.log('   2) 转为 jpg')
-    console.log('   3) 转为 png')
-    console.log('   4) 转为 webp')
-    question(rl, '\n请选择 (1-4): ').then(answer => {
+    console.log(colorize('\n❓ Output format 输出格式:', 'bright'))
+    console.log(colorize('   1) Keep original format 保持原格式', 'gray'))
+    console.log(colorize('   2) Convert to jpg 转为 jpg', 'gray'))
+    console.log(colorize('   3) Convert to png 转为 png', 'gray'))
+    console.log(colorize('   4) Convert to webp 转为 webp', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright')).then(answer => {
       const map: Record<string, string> = { '1': 'keep', '2': 'jpg', '3': 'png', '4': 'webp' }
       resolve(map[answer] || 'keep')
     })
   })
 }
 
-function askMode(rl: readline.Interface): Promise<string> {
+function askMode(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出模式:', 'bright'))
-    console.log('   1) 覆盖原图')
-    console.log('   2) 输出到新目录')
-    question(rl, '\n请选择 (1-2): ').then(answer => {
+    console.log(colorize('\n❓ Output mode 输出模式:', 'bright'))
+    console.log(colorize('   1) Overwrite original 覆盖原图', 'gray'))
+    console.log(colorize('   2) Output to new directory 输出到新目录', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-2): ', 'bright')).then(answer => {
       resolve(answer === '2' ? 'new-dir' : 'overwrite')
     })
   })
-}
-
-// Supported image extensions
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.tiff']
-
-function getImageFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) {
-    console.error(colorize(`❌ 目录不存在: ${dir}`, 'red'))
-    process.exit(1)
-  }
-
-  const files = fs.readdirSync(dir)
-  const images = files.filter(file => {
-    const ext = path.extname(file).toLowerCase()
-    return SUPPORTED_EXTENSIONS.includes(ext)
-  })
-
-  if (images.length === 0) {
-    console.error(colorize(`❌ 目录中没有找到支持的图片格式: ${dir}`, 'yellow'))
-    console.log(colorize(`   支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'reset'))
-    process.exit(1)
-  }
-
-  return images.map(f => path.join(dir, f))
-}
-
-function ensureUniqueDir(dir: string): string {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-
-  const base = dir
-  let counter = 1
-  let newDir = `${base}-${counter}`
-
-  while (fs.existsSync(newDir)) {
-    counter++
-    newDir = `${base}-${counter}`
-  }
-
-  fs.mkdirSync(newDir, { recursive: true })
-  return newDir
 }
 
 // Create SVG text watermark
@@ -303,7 +228,7 @@ async function addWatermark(
   const metadata = await image.metadata()
 
   if (!metadata.width || !metadata.height) {
-    throw new Error(`无法读取图片尺寸: ${inputPath}`)
+    throw new Error(`Cannot read image size 无法读取图片尺寸: ${inputPath}`)
   }
 
   let compositeOptions: { input: Buffer; gravity: keyof sharp.Gravity | undefined; tile: boolean }
@@ -322,7 +247,7 @@ async function addWatermark(
     const watermarkMeta = await watermarkImage.metadata()
 
     if (!watermarkMeta.width || !watermarkMeta.height) {
-      throw new Error(`无法读取水印图片尺寸: ${options.imagePath}`)
+      throw new Error(`Cannot read watermark image size 无法读取水印图片尺寸: ${options.imagePath}`)
     }
 
     // Resize watermark if it's larger than the base image
@@ -346,7 +271,7 @@ async function addWatermark(
       tile: options.position === 'tile',
     }
   } else {
-    throw new Error('必须提供文字或图片水印')
+    throw new Error('Must provide text or image watermark 必须提供文字或图片水印')
   }
 
   // Build pipeline - process to buffer first to avoid input/output conflict
@@ -387,18 +312,20 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize('❌ 请指定输入目录: --input <directory>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input 请指定输入目录: --input <directory>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
-  const inputDir = path.resolve(args.input)
-  const imageFiles = getImageFiles(inputDir)
+  const inputPath = path.resolve(args.input)
+  const imageFiles = getImageFiles(inputPath)
 
-  console.log(colorize('\n🖼️  图片水印工具', 'bright'))
+  const isSingleFile = fs.statSync(inputPath).isFile()
+
+  console.log(colorize('\n🖼️  Image Watermark Tool 图片水印工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 输入目录: ${inputDir}`, 'cyan'))
-  console.log(colorize(`🖼️  发现 ${imageFiles.length} 张图片\n`, 'cyan'))
+  console.log(colorize(`📁 Input 输入: ${inputPath}`, 'cyan'))
+  console.log(colorize(`🖼️  Found 发现 ${imageFiles.length} images 张图片\n`, 'cyan'))
 
   const rl = createInterface()
 
@@ -416,7 +343,7 @@ async function main(): Promise<void> {
   }
 
   if (watermarkType === 'text' && !text) {
-    console.error(colorize('❌ 请提供文字水印内容', 'red'))
+    console.error(colorize('❌ Please provide text watermark content 请提供文字水印内容', 'red'))
     rl.close()
     process.exit(1)
   }
@@ -431,41 +358,46 @@ async function main(): Promise<void> {
   const mode = (args.mode || (args.yes ? 'overwrite' : await askMode(rl))) as 'overwrite' | 'new-dir'
   const quality = args.quality || 85
 
-  let outputDir = inputDir
+  let outputDir = inputPath
   if (mode === 'new-dir') {
-    const targetDir = args.output || path.join(inputDir, 'watermarked')
-    outputDir = ensureUniqueDir(targetDir)
+    if (isSingleFile) {
+      const targetDir = args.output || path.join(path.dirname(inputPath), 'watermarked')
+      outputDir = ensureUniqueDir(targetDir)
+    } else {
+      const targetDir = args.output || path.join(inputPath, 'watermarked')
+      outputDir = ensureUniqueDir(targetDir)
+    }
   }
 
   // Show summary
-  console.log(colorize('\n📋 操作摘要:', 'bright'))
-  console.log(`   输入目录: ${inputDir}`)
-  console.log(`   输出模式: ${mode === 'overwrite' ? '覆盖原图' : `新目录 (${outputDir})`}`)
-  console.log(`   水印类型: ${watermarkType === 'text' ? `文字: "${text}"` : `图片: ${imagePath}`}`)
-  console.log(`   水印位置: ${position}`)
-  console.log(`   透明度: ${Math.round(opacity * 100)}%`)
+  console.log(colorize('\n📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Input 输入: ${inputPath}`)
+  console.log(`   Output mode 输出模式: ${mode === 'overwrite' ? 'Overwrite original 覆盖原图' : `New directory 新目录 (${outputDir})`}`)
+  console.log(`   Watermark type 水印类型: ${watermarkType === 'text' ? `Text 文字: "${text}"` : `Image 图片: ${imagePath}`}`)
+  console.log(`   Position 位置: ${position}`)
+  console.log(`   Opacity 透明度: ${Math.round(opacity * 100)}%`)
   if (watermarkType === 'text') {
-    console.log(`   字体大小: ${fontSize}px`)
-    console.log(`   字体颜色: ${color}`)
+    console.log(`   Font size 字体大小: ${fontSize}px`)
+    console.log(`   Color 字体颜色: ${color}`)
   }
-  console.log(`   输出格式: ${format === 'keep' ? '保持原格式' : format}`)
-  console.log(`   图片数量: ${imageFiles.length} 张`)
+  console.log(`   Output format 输出格式: ${format === 'keep' ? 'Keep original 保持原格式' : format}`)
+  console.log(`   Images 图片数量: ${imageFiles.length} 张`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  此操作不可撤销，确认执行? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  This cannot be undone. Confirm? 此操作不可撤销，确认执行? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
   // Process images
-  console.log(colorize('\n🖼️  开始处理...\n', 'bright'))
+  console.log(colorize('\n🖼️  Processing 处理中...\n', 'bright'))
 
   let successCount = 0
   let failCount = 0
@@ -479,7 +411,7 @@ async function main(): Promise<void> {
     const outputPath = mode === 'overwrite' ? inputPath : path.join(outputDir, outputFilename)
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
     )
 
     try {
@@ -506,12 +438,12 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ 处理完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 张`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
+  console.log(colorize('✅ Done 完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} 张`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 

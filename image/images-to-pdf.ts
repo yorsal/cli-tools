@@ -12,7 +12,7 @@ import path from 'path'
 import { glob } from 'glob'
 import PDFDocument from 'pdfkit'
 import sharp from 'sharp'
-import * as readline from 'readline'
+import { colorize, createInterface, question } from '../src/utils/index.js'
 
 // CLI argument types
 interface CliArgs {
@@ -84,39 +84,6 @@ Examples:
   tsx image/images-to-pdf.ts -i "*.jpg" -o photos.pdf
   tsx image/images-to-pdf.ts -i *.png -o images.pdf -l landscape -s A4 -m 20
 `)
-}
-
-// Color output
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
 }
 
 // Supported image extensions
@@ -206,14 +173,14 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input || args.input.length === 0) {
-    console.error(colorize('❌ 请指定输入图片: --input <images...>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input images 请指定输入图片: --input <images...>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
   if (!args.output) {
-    console.error(colorize('❌ 请指定输出文件: --output <output.pdf>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify output file 请指定输出文件: --output <output.pdf>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
@@ -221,8 +188,8 @@ async function main(): Promise<void> {
   const inputPaths = resolveInputPaths(args.input)
 
   if (inputPaths.length === 0) {
-    console.error(colorize('❌ 没有找到支持的图片文件', 'red'))
-    console.log(colorize(`   支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'reset'))
+    console.error(colorize('❌ No supported images found 未找到支持的图片文件', 'red'))
+    console.log(colorize(`   Supported formats 支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'gray'))
     process.exit(1)
   }
 
@@ -236,36 +203,36 @@ async function main(): Promise<void> {
   const quality = args.quality ?? 85
   const gap = args.gap ?? 0
 
-  console.log(colorize('\n📄 Images to PDF Tool', 'bright'))
+  console.log(colorize('\n📄 Images to PDF Tool 图片转PDF工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 发现 ${inputPaths.length} 张图片\n`, 'cyan'))
+  console.log(colorize(`📁 Found 发现 ${inputPaths.length} images 张图片\n`, 'cyan'))
 
   const rl = createInterface()
 
   // Show summary
-  console.log(colorize('📋 操作摘要:', 'bright'))
-  console.log(`   输出文件: ${outputPath}`)
-  console.log(`   页面尺寸: ${args.pageSize || 'A4'} (${pageSize[0]} x ${pageSize[1]} pt)`)
-  console.log(`   布局模式: ${layout}`)
-  console.log(`   边距: ${margin} pt`)
-  console.log(`   图片间距: ${gap} pt`)
-  console.log(`   JPEG 质量: ${quality}%`)
+  console.log(colorize('📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Output file 输出文件: ${outputPath}`)
+  console.log(`   Page size 页面尺寸: ${args.pageSize || 'A4'} (${pageSize[0]} x ${pageSize[1]} pt)`)
+  console.log(`   Layout 布局模式: ${layout}`)
+  console.log(`   Margin 边距: ${margin} pt`)
+  console.log(`   Gap 图片间距: ${gap} pt`)
+  console.log(`   JPEG quality JPEG质量: ${quality}%`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  确认生成 PDF? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  Confirm generate PDF? 确认生成PDF? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
   // Create PDF
-  console.log(colorize('\n🖼️  开始处理...\n', 'bright'))
+  console.log(colorize('\n🖼️  Processing 处理中...\n', 'bright'))
 
   const doc = new PDFDocument({
     size: pageSize,
@@ -285,7 +252,7 @@ async function main(): Promise<void> {
     const filename = path.basename(imagePath)
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${inputPaths.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${inputPaths.length}] ${filename} ... `
     )
 
     try {
@@ -375,13 +342,13 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ PDF 生成完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 张图片`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张图片`)
-  console.log(`   输出: ${colorize(outputPath, 'cyan')}`)
+  console.log(colorize('✅ PDF generated PDF生成完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} images 张`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} images 张`)
+  console.log(`   Output 输出: ${colorize(outputPath, 'cyan')}`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 

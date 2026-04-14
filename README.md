@@ -12,7 +12,12 @@ Jump to any tool quickly:
 - [crop-images](#image-batch-crop-crop-images) - Batch crop images to a specified aspect ratio
 - [add-watermark](#image-watermark-add-watermark) - Add text or image watermark to images
 - [remove-watermark](#image-watermark-removal-remove-watermark) - Remove or reduce watermark visibility
+- [resize-images](#image-batch-resize-resize-images) - Batch resize images by dimensions, percentage, or longest edge
+- [adjust-colors](#image-color-adjustment-adjust-colors) - Adjust brightness, contrast, saturation and apply filters
+- [blur-mosaic](#image-blurmosaic-blur-mosaic) - Apply blur or mosaic effects to images
+- [rotate-flip](#image-rotateflip-rotate-flip) - Rotate and flip images
 - [images-to-pdf](#images-to-pdf-images-to-pdf) - Combine multiple images into a single PDF
+- [remove-bg](#remove-background-remove-bg) - Remove background from images using AI
 
 ### Video Tools
 - [video-convert](#video-batch-convert-video-convert) - Convert video files to different formats
@@ -34,6 +39,7 @@ Some tools require external dependencies:
 | video-convert | ffmpeg | `brew install ffmpeg` (macOS) / `sudo apt install ffmpeg` (Ubuntu) |
 | video-transcribe | faster-whisper | `pip install faster-whisper` |
 | video-dedup | ffmpeg | Same as above |
+| remove-bg | rembg | Python 自动安装 (pip) |
 
 ---
 
@@ -241,6 +247,268 @@ tsx image/images-to-pdf.ts -i ./images -o output.pdf -l landscape -s A4 -m 20
 
 ---
 
+## Remove Background (remove-bg)
+
+Remove background from images using AI-powered background removal (rembg).
+
+### Usage
+
+```bash
+tsx image/remove-bg.ts --input <file|directory> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <path>` | Input image file or directory | Required |
+| `-o, --output <path>` | Output file or directory | Required |
+| `--model <name>` | Model name: u2net, u2netp, u2net_human_seg, bria.rmbg | u2net |
+| `--no-session` | Create new session per image (slower) | false |
+
+### Examples
+
+```bash
+# Single image
+tsx image/remove-bg.ts -i photo.jpg -o photo_transparent.png
+
+# Batch process directory
+tsx image/remove-bg.ts -i ./photos -o ./output
+
+# Use BRIA RMBG model
+tsx image/remove-bg.ts -i photo.jpg -o photo.png --model bria.rmbg
+```
+
+### Notes
+
+- Python 依赖会在首次运行时自动安装
+- 默认模型: u2net (通用效果好)
+- bria.rmbg: 适合产品摄影
+
+---
+
+## Image Batch Resize (resize-images)
+
+Batch resize images with multiple resize modes.
+
+### Usage
+
+```bash
+tsx image/resize-images.ts --input <directory> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <directory>` | Source image directory | Required |
+| `-W, --width <pixels>` | Target width | - |
+| `-h, --height <pixels>` | Target height | - |
+| `-p, --percent <number>` | Scale percentage (50=half, 200=double) | - |
+| `-l, --longest-edge <pixels>` | Scale so longest edge = this value | - |
+| `-f, --format <format>` | Output format: jpg, png, webp, keep | keep |
+| `-m, --mode <mode>` | Output mode: overwrite, new-dir | overwrite |
+| `-o, --output <directory>` | Output directory (required when mode=new-dir) | - |
+| `-q, --quality <number>` | Output quality 1-100 | 85 |
+| `-y, --yes` | Skip all confirmation prompts | false |
+| `-H, --help` | Show help message | - |
+
+### Examples
+
+```bash
+# Resize by percentage (half size)
+tsx image/resize-images.ts -i ./images --percent 50 --yes
+
+# Resize to exact dimensions
+tsx image/resize-images.ts -i ./images -W 800 -h 600 --yes
+
+# Resize by longest edge (max 1920px)
+tsx image/resize-images.ts -i ./images --longest-edge 1920 -m new-dir -o ./images/resized
+
+# Convert to webp with high quality
+tsx image/resize-images.ts -i ./images -f webp -q 90 --yes
+```
+
+### Notes
+
+- Width/height and percent are mutually exclusive
+- Longest-edge mode maintains aspect ratio (e.g., 1920x1080 with longest-edge=1280 → 1280x720)
+- Images smaller than target in longest-edge mode are copied unchanged
+
+---
+
+## Image Color Adjustment (adjust-colors)
+
+Adjust brightness, contrast, saturation and apply filter effects.
+
+### Usage
+
+```bash
+tsx image/adjust-colors.ts --input <directory> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <directory>` | Source image directory | Required |
+| `-b, --brightness <number>` | Brightness -100 to 100 | 0 |
+| `-c, --contrast <number>` | Contrast -100 to 100 | 0 |
+| `-s, --saturation <number>` | Saturation -100 to 100 | 0 |
+| `--grayscale` | Convert to grayscale | - |
+| `--sepia` | Apply sepia tone effect | - |
+| `--sharpen` | Sharpen image | - |
+| `--blur` | Apply light gaussian blur | - |
+| `-f, --format <format>` | Output format: jpg, png, webp, keep | keep |
+| `-m, --mode <mode>` | Output mode: overwrite, new-dir | overwrite |
+| `-o, --output <directory>` | Output directory (required when mode=new-dir) | - |
+| `-q, --quality <number>` | Output quality 1-100 | 85 |
+| `-y, --yes` | Skip all confirmation prompts | false |
+| `-H, --help` | Show help message | - |
+
+### Examples
+
+```bash
+# Brighten image
+tsx image/adjust-colors.ts -i ./images --brightness 30 --yes
+
+# Increase contrast and saturation
+tsx image/adjust-colors.ts -i ./images -c 20 -s 50 --yes
+
+# Apply grayscale filter
+tsx image/adjust-colors.ts -i ./images --grayscale -m new-dir -o ./images/bw
+
+# Apply sepia tone
+tsx image/adjust-colors.ts -i ./images --sepia --yes
+
+# Combine adjustments with filters
+tsx image/adjust-colors.ts -i ./images -b 10 -c 15 --sharpen -f jpg --yes
+```
+
+### Notes
+
+- Adjustments (brightness, contrast, saturation) and filters can be combined
+- Filters are applied after numeric adjustments
+- Negative values reduce, positive values increase
+
+---
+
+## Image Blur/Mosaic (blur-mosaic)
+
+Apply blur or mosaic effects to images, with region targeting.
+
+### Usage
+
+```bash
+tsx image/blur-mosaic.ts --input <directory> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <directory>` | Source image directory | Required |
+| `-B, --blur <radius>` | Gaussian blur radius 1-100 | - |
+| `-M, --mosaic <size>` | Mosaic pixel size 2-50 | - |
+| `-r, --region <region>` | Target region: all, top, bottom, left, right, corner | all |
+| `--rect <x,y,w,h>` | Custom rectangle (x,y,width,height in pixels) | - |
+| `-f, --format <format>` | Output format: jpg, png, webp, keep | keep |
+| `-m, --mode <mode>` | Output mode: overwrite, new-dir | overwrite |
+| `-o, --output <directory>` | Output directory (required when mode=new-dir) | - |
+| `-q, --quality <number>` | Output quality 1-100 | 85 |
+| `-y, --yes` | Skip all confirmation prompts | false |
+| `-H, --help` | Show help message | - |
+
+### Region Presets
+
+| Region | Description |
+|--------|-------------|
+| `all` | Entire image (default) |
+| `top` | Top 20% of image |
+| `bottom` | Bottom 20% of image |
+| `left` | Left 20% of image |
+| `right` | Right 20% of image |
+| `corner` | Bottom-right 25% x 25% corner |
+
+### Examples
+
+```bash
+# Blur entire image
+tsx image/blur-mosaic.ts -i ./images --blur 10 --yes
+
+# Apply mosaic to corner (for privacy/redaction)
+tsx image/blur-mosaic.ts -i ./images --mosaic 8 -r corner --yes
+
+# Blur custom region
+tsx image/blur-mosaic.ts -i ./images --blur 15 --rect 100,100,200,200 -m new-dir -o ./output
+
+# Apply mosaic to bottom region
+tsx image/blur-mosaic.ts -i ./images --mosaic 12 -r bottom --yes
+```
+
+### Notes
+
+- Blur and mosaic are mutually exclusive (use either -B or -M)
+- Custom rect format: x,y,width,height in pixels
+- Useful for redacting sensitive information (license plates, faces, etc.)
+
+---
+
+## Image Rotate/Flip (rotate-flip)
+
+Rotate and flip images with support for multiple rotation angles.
+
+### Usage
+
+```bash
+tsx image/rotate-flip.ts --input <directory> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <directory>` | Source image directory | Required |
+| `--rotate-90` | Rotate 90 degrees clockwise | - |
+| `--rotate-180` | Rotate 180 degrees | - |
+| `--rotate-270` | Rotate 270 degrees clockwise | - |
+| `--rotate-custom <degrees>` | Rotate by custom angle (0-360) | - |
+| `--flip-horizontal` | Mirror along vertical axis | - |
+| `--flip-vertical` | Mirror along horizontal axis | - |
+| `-f, --format <format>` | Output format: jpg, png, webp, keep | keep |
+| `-m, --mode <mode>` | Output mode: overwrite, new-dir | overwrite |
+| `-o, --output <directory>` | Output directory (required when mode=new-dir) | - |
+| `-q, --quality <number>` | Output quality 1-100 | 85 |
+| `-y, --yes` | Skip all confirmation prompts | false |
+| `-H, --help` | Show help message | - |
+
+### Examples
+
+```bash
+# Rotate 90 degrees clockwise
+tsx image/rotate-flip.ts -i ./images --rotate-90 --yes
+
+# Flip horizontally (mirror)
+tsx image/rotate-flip.ts -i ./images --flip-horizontal --yes
+
+# Rotate 180 degrees
+tsx image/rotate-flip.ts -i ./images --rotate-180 -m new-dir -o ./images/rotated
+
+# Combine rotation and flip
+tsx image/rotate-flip.ts -i ./images --rotate-90 --flip-horizontal --yes
+
+# Custom angle rotation
+tsx image/rotate-flip.ts -i ./images --rotate-custom 45 --yes
+```
+
+### Notes
+
+- Rotation and flip can be combined
+- Custom rotation auto-fits canvas (no clipping)
+- Useful for correcting orientation or creating mirror effects
+
+---
+
 ## Video Batch Convert (video-convert)
 
 Convert video files to different formats using ffmpeg.
@@ -248,14 +516,14 @@ Convert video files to different formats using ffmpeg.
 ### Usage
 
 ```bash
-tsx video/video-convert.ts --input <directory> [options]
+tsx video/video-convert.ts --input <file|directory> [options]
 ```
 
 ### Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-i, --input <directory>` | Source video directory | Required |
+| `-i, --input <path>` | Source video file or directory | Required |
 | `-f, --format <format>` | Output format: mp4, webm, avi, mkv, mov, gif | mp4 |
 | `-c, --codec <codec>` | Video codec: h264, h265, vp9, av1 | h264 (for mp4) |
 | `-q, --quality <number>` | CRF quality 18-28 (lower = better quality) | 23 |
@@ -267,8 +535,11 @@ tsx video/video-convert.ts --input <directory> [options]
 ### Examples
 
 ```bash
-# Interactive mode
+# Interactive mode (directory)
 tsx video/video-convert.ts -i ./videos
+
+# Single file conversion
+tsx video/video-convert.ts -i input.mp4 -f mp4 --yes
 
 # Convert to MP4 with high quality
 tsx video/video-convert.ts -i ./videos -f mp4 -q 18 --yes

@@ -12,7 +12,7 @@ import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import * as readline from "readline";
+import { colorize, createInterface, question } from "../src/utils/index.js";
 
 const execAsync = promisify(exec);
 
@@ -86,42 +86,6 @@ Note:
 `);
 }
 
-// Color output
-const colors = {
-  reset: "\x1b[0m",
-  bright: "\x1b[1m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  cyan: "\x1b[36m",
-  gray: "\x1b[90m",
-} as const;
-
-type ColorName = keyof typeof colors;
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`;
-}
-
-// Readline helper
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-}
-
-async function question(
-  rl: readline.Interface,
-  prompt: string,
-): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      resolve(answer.trim());
-    });
-  });
-}
-
 // Supported video extensions
 const SUPPORTED_EXTENSIONS = [
   ".mp4",
@@ -138,7 +102,7 @@ const SUPPORTED_EXTENSIONS = [
 
 function getVideoFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) {
-    console.error(colorize(`❌ 目录不存在: ${dir}`, "red"));
+    console.error(colorize(`❌ Directory not found 目录不存在: ${dir}`, 'red'))
     process.exit(1);
   }
 
@@ -146,7 +110,7 @@ function getVideoFiles(dir: string): string[] {
   if (fs.statSync(dir).isFile()) {
     const ext = path.extname(dir).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-      console.error(colorize(`❌ 不支持的视频格式: ${ext}`, "red"));
+      console.error(colorize(`❌ Unsupported video format 不支持的视频格式: ${ext}`, 'red'))
       process.exit(1);
     }
     return [dir];
@@ -161,8 +125,8 @@ function getVideoFiles(dir: string): string[] {
 
   if (videos.length === 0) {
     console.error(
-      colorize(`❌ 目录中没有找到支持的视频格式: ${dir}`, "yellow"),
-    );
+      colorize(`❌ No supported videos found in directory 未找到支持的视频格式: ${dir}`, 'yellow'),
+    )
     process.exit(1);
   }
 
@@ -193,6 +157,31 @@ async function checkPythonFasterWhisper(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function installPythonDependencies(): Promise<void> {
+  console.log(colorize("📦 Installing Python dependencies automatically正在自动安装 Python 依赖...", 'yellow'))
+
+  // Check if pip is available
+  try {
+    await execAsync("python3 -m pip --version");
+  } catch {
+    console.error(colorize('❌ pip not found, please install Python pip first 未找到 pip，请先安装 Python pip', 'red'))
+    process.exit(1);
+  }
+
+  // Install faster-whisper
+  const hasFasterWhisper = await checkPythonFasterWhisper();
+  if (!hasFasterWhisper) {
+    console.log(colorize("   安装 faster-whisper...", "gray"));
+    try {
+      await execAsync('python3 -m pip install faster-whisper -q');
+      console.log(colorize("   ✅ faster-whisper 安装完成", "green"));
+    } catch (err) {
+      console.error(colorize('❌ faster-whisper installation failed faster-whisper 安装失败', 'red'))
+      throw err;
+    }
   }
 }
 
@@ -493,19 +482,19 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize("❌ 请指定输入文件或目录: --input <path>", "red"));
-    console.log("   使用 --help 查看帮助");
+    console.error(colorize('❌ Please specify input file or directory 请指定输入文件或目录: --input <path>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1);
   }
 
   // Check ffmpeg availability
   const hasFfmpeg = await checkFfmpeg();
   if (!hasFfmpeg) {
-    console.error(colorize("❌ 未找到 ffmpeg，请先安装 ffmpeg", "red"));
-    console.log("   安装方式:");
-    console.log("   macOS: brew install ffmpeg");
-    console.log("   Ubuntu/Debian: sudo apt install ffmpeg");
-    console.log("   Windows: winget install ffmpeg");
+    console.error(colorize('❌ ffmpeg not found, please install ffmpeg first 未找到 ffmpeg，请先安装 ffmpeg', 'red'))
+    console.log(colorize('   Installation 安装方式:', 'gray'))
+    console.log(colorize('   macOS: brew install ffmpeg', 'gray'))
+    console.log(colorize('   Ubuntu/Debian: sudo apt install ffmpeg', 'gray'))
+    console.log(colorize('   Windows: winget install ffmpeg', 'gray'))
     process.exit(1);
   }
 
@@ -519,14 +508,22 @@ async function main(): Promise<void> {
     // fallback to lightning-whisper-mlx if faster-whisper not available
     useMlx = true;
     console.log(
-      colorize("⚠️  faster-whisper 未安装，使用 lightning-whisper-mlx", "yellow"),
+      colorize("⚠️  faster-whisper not installed, using lightning-whisper-mlx 未安装 faster-whisper，使用 lightning-whisper-mlx", "yellow"),
     );
   } else if (!hasWhisper && !hasMlxWhisper) {
-    console.error(
-      colorize("❌ 未找到 faster-whisper (Python)，请先安装", "red"),
+    // Auto-install dependencies
+    await installPythonDependencies();
+    // Re-check after installation
+    const hasWhisperAfterInstall = await checkPythonFasterWhisper();
+    if (!hasWhisperAfterInstall) {
+      console.error(
+        colorize('❌ faster-whisper installation failed, please install manually faster-whisper 安装失败，请手动安装', 'red'),
+      );
+      process.exit(1);
+    }
+    console.log(
+      colorize("✅ faster-whisper installed successfully, continuing 已安装成功，继续中...", "green"),
     );
-    console.log("   安装方式: pip3 install faster-whisper");
-    process.exit(1);
   }
 
   // Check CUDA availability
@@ -664,13 +661,13 @@ async function main(): Promise<void> {
       console.log(colorize("✅", "green"));
       console.log(
         colorize(
-          `      语言: ${info.language} (${(info.languageProbability * 100).toFixed(1)}%)`,
-          "gray",
+          `      Language 语言: ${info.language} (${(info.languageProbability * 100).toFixed(1)}%)`,
+          'gray',
         ),
       );
-      console.log(colorize(`      时长: ${info.duration.toFixed(1)}s`, "gray"));
-      console.log(colorize(`      片段: ${segments.length}`, "gray"));
-      console.log(colorize(`      输出: ${outputPath}`, "gray"));
+      console.log(colorize(`      Duration 时长: ${info.duration.toFixed(1)}s`, 'gray'));
+      console.log(colorize(`      Segments 片段: ${segments.length}`, 'gray'));
+      console.log(colorize(`      Output 输出: ${outputPath}`, 'gray'));
       successCount++;
     } catch (err) {
       console.log(colorize("❌", "red"));

@@ -11,7 +11,8 @@ import fs from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import * as readline from 'readline'
+import { Interface } from 'readline'
+import { colorize, createInterface, question, getVideoFiles, ensureUniqueDir } from '../src/utils/index.js'
 
 const execAsync = promisify(exec)
 
@@ -53,7 +54,7 @@ Required:
   --input, -i <directory>    Source video directory
 
 Options:
-  --format, -f <format>     Output format: mp4, webm, avi, mkv, mov, gif
+  --format, -f <format>     Output format: mp4, webm, avi, mkv, mov, gif, mp3
   --codec, -c <codec>        Video codec: h264, h265, vp9, av1 (default: h264 for mp4)
   --quality, -q <number>     Output quality 1-100 (default: 85)
   --mode, -m <mode>          Output mode: overwrite, new-dir
@@ -69,39 +70,6 @@ Examples:
 `)
 }
 
-// Color output (same pattern as other scripts)
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper (same pattern as install.ts, setup-env.ts)
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
-}
-
 // Supported video formats and their ffmpeg mappings
 const FORMAT_PRESETS: Record<string, { ext: string; codec: string; description: string }> = {
   mp4: { ext: 'mp4', codec: 'h264', description: 'MP4 (H.264)' },
@@ -110,18 +78,20 @@ const FORMAT_PRESETS: Record<string, { ext: string; codec: string; description: 
   mkv: { ext: 'mkv', codec: 'h264', description: 'Matroska' },
   mov: { ext: 'mov', codec: 'h264', description: 'QuickTime MOV' },
   gif: { ext: 'gif', codec: 'gif', description: 'Animated GIF' },
+  mp3: { ext: 'mp3', codec: 'mp3', description: 'MP3 Audio' },
 }
 
-function askFormat(rl: readline.Interface): Promise<string> {
+function askFormat(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n🎬 输出格式:', 'bright'))
-    console.log('   1) MP4 (H.264)')
-    console.log('   2) WebM (VP9)')
-    console.log('   3) AVI')
-    console.log('   4) MKV (Matroska)')
-    console.log('   5) MOV (QuickTime)')
-    console.log('   6) GIF (Animated)')
-    question(rl, '\n请选择 (1-6): ').then(answer => {
+    console.log(colorize('\n🎬 Output format 输出格式:', 'bright'))
+    console.log(colorize('   1) MP4 (H.264)', 'gray'))
+    console.log(colorize('   2) WebM (VP9)', 'gray'))
+    console.log(colorize('   3) AVI', 'gray'))
+    console.log(colorize('   4) MKV (Matroska)', 'gray'))
+    console.log(colorize('   5) MOV (QuickTime)', 'gray'))
+    console.log(colorize('   6) GIF (Animated)', 'gray'))
+    console.log(colorize('   7) MP3 (Audio only)', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-7): ', 'bright')).then(answer => {
       const map: Record<string, string> = {
         '1': 'mp4',
         '2': 'webm',
@@ -129,83 +99,41 @@ function askFormat(rl: readline.Interface): Promise<string> {
         '4': 'mkv',
         '5': 'mov',
         '6': 'gif',
+        '7': 'mp3',
       }
       resolve(map[answer] || 'mp4')
     })
   })
 }
 
-function askMode(rl: readline.Interface): Promise<string> {
+function askMode(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出模式:', 'bright'))
-    console.log('   1) 覆盖原文件')
-    console.log('   2) 输出到新目录')
-    question(rl, '\n请选择 (1-2): ').then(answer => {
+    console.log(colorize('\n❓ Output mode 输出模式:', 'bright'))
+    console.log(colorize('   1) Overwrite original 覆盖原文件', 'gray'))
+    console.log(colorize('   2) Output to new directory 输出到新目录', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-2): ', 'bright')).then(answer => {
       resolve(answer === '2' ? 'new-dir' : 'overwrite')
     })
   })
 }
 
-async function askQuality(rl: readline.Interface): Promise<number> {
-  console.log(colorize('\n🎚️  视频质量 (CRF 值，越低质量越高):', 'bright'))
-  console.log('   1) 高质量 (CRF 18)')
-  console.log('   2) 中等质量 (CRF 23)')
-  console.log('   3) 低文件大小 (CRF 28)')
-  console.log('   4) 自定义')
-  const answer = await question(rl, '\n请选择 (1-4): ')
+async function askQuality(rl: Interface): Promise<number> {
+  console.log(colorize('\n🎚️  Video quality (CRF value, lower is better) 视频质量 (CRF值，越低质量越高):', 'bright'))
+  console.log(colorize('   1) High quality 高质量 (CRF 18)', 'gray'))
+  console.log(colorize('   2) Medium quality 中等质量 (CRF 23)', 'gray'))
+  console.log(colorize('   3) Low file size 低文件大小 (CRF 28)', 'gray'))
+  console.log(colorize('   4) Custom 自定义', 'gray'))
+  const answer = await question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright'))
 
   const map: Record<string, number> = { '1': 18, '2': 23, '3': 28 }
   if (map[answer]) return map[answer]
 
   if (answer === '4') {
-    const q = await question(rl, '   请输入 CRF 值 (18-28): ')
+    const q = await question(rl, colorize('   Enter CRF value 输入CRF值 (18-28): ', 'bright'))
     const val = parseInt(q, 10)
     return isNaN(val) ? 23 : Math.min(28, Math.max(18, val))
   }
   return 23
-}
-
-// Supported video extensions
-const SUPPORTED_EXTENSIONS = ['.mp4', '.avi', '.mkv', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg', '.gif']
-
-function getVideoFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) {
-    console.error(colorize(`❌ 目录不存在: ${dir}`, 'red'))
-    process.exit(1)
-  }
-
-  const files = fs.readdirSync(dir)
-  const videos = files.filter(file => {
-    const ext = path.extname(file).toLowerCase()
-    return SUPPORTED_EXTENSIONS.includes(ext)
-  })
-
-  if (videos.length === 0) {
-    console.error(colorize(`❌ 目录中没有找到支持的视频格式: ${dir}`, 'yellow'))
-    console.log(colorize(`   支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'reset'))
-    process.exit(1)
-  }
-
-  return videos.map(f => path.join(dir, f))
-}
-
-function ensureUniqueDir(dir: string): string {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-
-  const base = dir
-  let counter = 1
-  let newDir = `${base}-${counter}`
-
-  while (fs.existsSync(newDir)) {
-    counter++
-    newDir = `${base}-${counter}`
-  }
-
-  fs.mkdirSync(newDir, { recursive: true })
-  return newDir
 }
 
 async function checkFfmpeg(): Promise<boolean> {
@@ -289,6 +217,14 @@ function buildFfmpegArgs(
         '-loop', '0'
       )
       break
+    case 'mp3':
+      // MP3 audio extraction - no video
+      args.push(
+        '-vn', // No video
+        '-c:a', 'libmp3lame',
+        '-q:a', '2' // Quality level (0-9, lower is better)
+      )
+      break
   }
 
   args.push(quotePath(outputPath))
@@ -349,29 +285,30 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize('❌ 请指定输入目录: --input <directory>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input directory 请指定输入目录: --input <directory>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
   // Check ffmpeg availability
   const hasFfmpeg = await checkFfmpeg()
   if (!hasFfmpeg) {
-    console.error(colorize('❌ 未找到 ffmpeg，请先安装 ffmpeg', 'red'))
-    console.log('   安装方式:')
-    console.log('   macOS: brew install ffmpeg')
-    console.log('   Ubuntu/Debian: sudo apt install ffmpeg')
-    console.log('   Windows: winget install ffmpeg')
+    console.error(colorize('❌ ffmpeg not found, please install ffmpeg first 未找到 ffmpeg，请先安装 ffmpeg', 'red'))
+    console.log(colorize('   Installation 安装方式:', 'gray'))
+    console.log(colorize('   macOS: brew install ffmpeg', 'gray'))
+    console.log(colorize('   Ubuntu/Debian: sudo apt install ffmpeg', 'gray'))
+    console.log(colorize('   Windows: winget install ffmpeg', 'gray'))
     process.exit(1)
   }
 
-  const inputDir = path.resolve(args.input)
-  const videoFiles = getVideoFiles(inputDir)
+  const inputPath = path.resolve(args.input)
+  const isDir = fs.statSync(inputPath).isDirectory()
+  const videoFiles = getVideoFiles(inputPath)
 
-  console.log(colorize('\n🎬 视频批量转换工具', 'bright'))
+  console.log(colorize('\n🎬 Video Batch Convert Tool 视频批量转换工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 输入目录: ${inputDir}`, 'cyan'))
-  console.log(colorize(`🖼️  发现 ${videoFiles.length} 个视频文件\n`, 'cyan'))
+  console.log(colorize(`📁 Input 输入: ${inputPath}`, 'cyan'))
+  console.log(colorize(`🖼️  Found 发现 ${videoFiles.length} video files 个视频文件\n`, 'cyan'))
 
   const rl = createInterface()
 
@@ -380,35 +317,36 @@ async function main(): Promise<void> {
   const mode = (args.mode || (args.yes ? 'overwrite' : await askMode(rl))) as 'overwrite' | 'new-dir'
   const quality = args.quality || (args.yes ? 23 : await askQuality(rl))
 
-  let outputDir = inputDir
+  let outputDir = inputPath
   if (mode === 'new-dir') {
-    const targetDir = args.output || path.join(inputDir, 'converted')
+    const targetDir = args.output || (isDir ? path.join(inputPath, 'converted') : `${inputPath}_converted`)
     outputDir = ensureUniqueDir(targetDir)
   }
 
   // Show summary
-  console.log(colorize('\n📋 操作摘要:', 'bright'))
-  console.log(`   输入目录: ${inputDir}`)
-  console.log(`   输出模式: ${mode === 'overwrite' ? '覆盖原文件' : `新目录 (${outputDir})`}`)
-  console.log(`   输出格式: ${format.toUpperCase()}`)
-  console.log(`   CRF 质量: ${quality} (${quality <= 20 ? '高质量' : quality <= 25 ? '中等质量' : '低文件大小'})`)
-  console.log(`   视频数量: ${videoFiles.length} 个`)
+  console.log(colorize('\n📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Input 输入: ${isDir ? 'Directory 目录' : 'Single file 单文件'}`)
+  console.log(`   Input path 输入路径: ${inputPath}`)
+  console.log(`   Output mode 输出模式: ${mode === 'overwrite' ? 'Overwrite original 覆盖原文件' : `New directory 新目录 (${outputDir})`}`)
+  console.log(`   Output format 输出格式: ${format.toUpperCase()}`)
+  console.log(`   CRF quality CRF质量: ${quality} (${quality <= 20 ? 'High quality 高质量' : quality <= 25 ? 'Medium quality 中等质量' : 'Low file size 低文件大小'})`)
+  console.log(`   Videos 视频数量: ${videoFiles.length} 个`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  此操作不可撤销，确认执行? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  This cannot be undone. Confirm? 此操作不可撤销，确认执行? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
   // Process videos
-  console.log(colorize('\n🎬 开始处理...\n', 'bright'))
+  console.log(colorize('\n🎬 Processing 处理中...\n', 'bright'))
 
   let successCount = 0
   let failCount = 0
@@ -423,7 +361,7 @@ async function main(): Promise<void> {
     const outputPath = mode === 'overwrite' ? inputPath : path.join(outputDir, outputFilename)
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${videoFiles.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${videoFiles.length}] ${filename} ... `
     )
 
     try {
@@ -440,12 +378,12 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ 处理完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 个`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 个`)
+  console.log(colorize('✅ Done 完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} 个`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 个`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 

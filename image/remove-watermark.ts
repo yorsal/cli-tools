@@ -13,7 +13,8 @@
 import fs from 'fs'
 import path from 'path'
 import sharp from 'sharp'
-import * as readline from 'readline'
+import { Interface } from 'readline'
+import { colorize, createInterface, question, getImageFiles, ensureUniqueDir } from '../src/utils/index.js'
 
 // CLI argument types
 interface CliArgs {
@@ -51,10 +52,10 @@ function showHelp(): void {
   console.log(`
 🖼️  Image Watermark Removal Tool
 
-Usage: tsx image/remove-watermark.ts --input <directory> [options]
+Usage: tsx image/remove-watermark.ts --input <file|directory> [options]
 
 Required:
-  --input, -i <directory>    Source image directory
+  --input, -i <path>    Source image file or directory
 
 Options:
   --region, -r <region>      Target region: all, top, bottom, left, right, corner
@@ -79,39 +80,6 @@ Examples:
 `)
 }
 
-// Color output
-const colors = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
-} as const
-
-type ColorName = keyof typeof colors
-
-function colorize(text: string | number, color: ColorName): string {
-  return `${colors[color]}${text}${colors.reset}`
-}
-
-// Readline helper
-function createInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-}
-
-async function question(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise(resolve => {
-    rl.question(prompt, answer => {
-      resolve(answer.trim())
-    })
-  })
-}
-
 // Region presets
 const REGION_PRESETS: Record<string, { top?: number; bottom?: number; left?: number; right?: number }> = {
   'all': {},
@@ -128,16 +96,16 @@ function parseRegion(input: string): { top?: number; bottom?: number; left?: num
   return null
 }
 
-function askRegion(rl: readline.Interface): Promise<string> {
+function askRegion(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 目标区域:', 'bright'))
-    console.log('   1) 整张图片')
-    console.log('   2) 顶部区域')
-    console.log('   3) 底部区域')
-    console.log('   4) 左侧区域')
-    console.log('   5) 右侧区域')
-    console.log('   6) 四角区域')
-    question(rl, '\n请选择 (1-6): ').then(answer => {
+    console.log(colorize('\n❓ Target region 目标区域:', 'bright'))
+    console.log(colorize('   1) Whole image 整张图片', 'gray'))
+    console.log(colorize('   2) Top area 顶部区域', 'gray'))
+    console.log(colorize('   3) Bottom area 底部区域', 'gray'))
+    console.log(colorize('   4) Left area 左侧区域', 'gray'))
+    console.log(colorize('   5) Right area 右侧区域', 'gray'))
+    console.log(colorize('   6) Corner areas 四角区域', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-6): ', 'bright')).then(answer => {
       const map: Record<string, string> = {
         '1': 'all', '2': 'top', '3': 'bottom',
         '4': 'left', '5': 'right', '6': 'corner',
@@ -147,18 +115,18 @@ function askRegion(rl: readline.Interface): Promise<string> {
   })
 }
 
-function askStrength(rl: readline.Interface): Promise<number> {
+function askStrength(rl: Interface): Promise<number> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 去除强度:', 'bright'))
-    console.log('   1) 轻度 (保留更多原图细节)')
-    console.log('   2) 中度 (平衡)')
-    console.log('   3) 强度 (更干净但可能影响画质)')
-    console.log('   4) 自定义')
-    question(rl, '\n请选择 (1-4): ').then(answer => {
+    console.log(colorize('\n❓ Removal strength 去除强度:', 'bright'))
+    console.log(colorize('   1) Light 轻度 (preserve more detail 保留更多原图细节)', 'gray'))
+    console.log(colorize('   2) Medium 中度 (balance 平衡)', 'gray'))
+    console.log(colorize('   3) Strong 强度 (cleaner but may affect quality 更干净但可能影响画质)', 'gray'))
+    console.log(colorize('   4) Custom 自定义', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright')).then(answer => {
       const map: Record<string, number> = { '1': 0.4, '2': 0.7, '3': 0.9 }
       if (map[answer]) resolve(map[answer])
       else if (answer === '4') {
-        question(rl, '请输入强度 (0-1, 如 0.6): ').then(v => {
+        question(rl, colorize('Enter strength 强度 (0-1, e.g. 如 0.6): ', 'bright')).then(v => {
           resolve(Math.min(1, Math.max(0, parseFloat(v) || 0.7)))
         })
       } else resolve(0.7)
@@ -166,18 +134,18 @@ function askStrength(rl: readline.Interface): Promise<number> {
   })
 }
 
-function askThreshold(rl: readline.Interface): Promise<number> {
+function askThreshold(rl: Interface): Promise<number> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 检测灵敏度:', 'bright'))
-    console.log('   1) 低 (只检测明显水印)')
-    console.log('   2) 中 (默认)')
-    console.log('   3) 高 (检测更多区域)')
-    console.log('   4) 自定义')
-    question(rl, '\n请选择 (1-4): ').then(answer => {
+    console.log(colorize('\n❓ Detection sensitivity 检测灵敏度:', 'bright'))
+    console.log(colorize('   1) Low 低 (only obvious watermarks 只检测明显水印)', 'gray'))
+    console.log(colorize('   2) Medium 中 (default 默认)', 'gray'))
+    console.log(colorize('   3) High 高 (detect more areas 检测更多区域)', 'gray'))
+    console.log(colorize('   4) Custom 自定义', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright')).then(answer => {
       const map: Record<string, number> = { '1': 0.2, '2': 0.1, '3': 0.05 }
       if (map[answer]) resolve(map[answer])
       else if (answer === '4') {
-        question(rl, '请输入灵敏度 (0-1, 如 0.1): ').then(v => {
+        question(rl, colorize('Enter sensitivity 灵敏度 (0-1, e.g. 如 0.1): ', 'bright')).then(v => {
           resolve(Math.min(1, Math.max(0, parseFloat(v) || 0.1)))
         })
       } else resolve(0.1)
@@ -185,72 +153,29 @@ function askThreshold(rl: readline.Interface): Promise<number> {
   })
 }
 
-function askFormat(rl: readline.Interface): Promise<string> {
+function askFormat(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出格式:', 'bright'))
-    console.log('   1) 保持原格式')
-    console.log('   2) 转为 jpg')
-    console.log('   3) 转为 png')
-    console.log('   4) 转为 webp')
-    question(rl, '\n请选择 (1-4): ').then(answer => {
+    console.log(colorize('\n❓ Output format 输出格式:', 'bright'))
+    console.log(colorize('   1) Keep original format 保持原格式', 'gray'))
+    console.log(colorize('   2) Convert to jpg 转为 jpg', 'gray'))
+    console.log(colorize('   3) Convert to png 转为 png', 'gray'))
+    console.log(colorize('   4) Convert to webp 转为 webp', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-4): ', 'bright')).then(answer => {
       const map: Record<string, string> = { '1': 'keep', '2': 'jpg', '3': 'png', '4': 'webp' }
       resolve(map[answer] || 'keep')
     })
   })
 }
 
-function askMode(rl: readline.Interface): Promise<string> {
+function askMode(rl: Interface): Promise<string> {
   return new Promise(resolve => {
-    console.log(colorize('\n❓ 输出模式:', 'bright'))
-    console.log('   1) 覆盖原图')
-    console.log('   2) 输出到新目录')
-    question(rl, '\n请选择 (1-2): ').then(answer => {
+    console.log(colorize('\n❓ Output mode 输出模式:', 'bright'))
+    console.log(colorize('   1) Overwrite original 覆盖原图', 'gray'))
+    console.log(colorize('   2) Output to new directory 输出到新目录', 'gray'))
+    question(rl, colorize('\nSelect 请选择 (1-2): ', 'bright')).then(answer => {
       resolve(answer === '2' ? 'new-dir' : 'overwrite')
     })
   })
-}
-
-// Supported image extensions
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.tiff']
-
-function getImageFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) {
-    console.error(colorize(`❌ 目录不存在: ${dir}`, 'red'))
-    process.exit(1)
-  }
-
-  const files = fs.readdirSync(dir)
-  const images = files.filter(file => {
-    const ext = path.extname(file).toLowerCase()
-    return SUPPORTED_EXTENSIONS.includes(ext)
-  })
-
-  if (images.length === 0) {
-    console.error(colorize(`❌ 目录中没有找到支持的图片格式: ${dir}`, 'yellow'))
-    console.log(colorize(`   支持的格式: ${SUPPORTED_EXTENSIONS.join(', ')}`, 'reset'))
-    process.exit(1)
-  }
-
-  return images.map(f => path.join(dir, f))
-}
-
-function ensureUniqueDir(dir: string): string {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-
-  const base = dir
-  let counter = 1
-  let newDir = `${base}-${counter}`
-
-  while (fs.existsSync(newDir)) {
-    counter++
-    newDir = `${base}-${counter}`
-  }
-
-  fs.mkdirSync(newDir, { recursive: true })
-  return newDir
 }
 
 // Detect watermark region bounds
@@ -282,7 +207,7 @@ async function removeWatermark(
   const metadata = await image.metadata()
 
   if (!metadata.width || !metadata.height) {
-    throw new Error(`无法读取图片尺寸: ${inputPath}`)
+    throw new Error(`Cannot read image size 无法读取图片尺寸: ${inputPath}`)
   }
 
   const { width, height } = metadata
@@ -434,18 +359,20 @@ async function main(): Promise<void> {
 
   // Validate required arguments
   if (!args.input) {
-    console.error(colorize('❌ 请指定输入目录: --input <directory>', 'red'))
-    console.log('   使用 --help 查看帮助')
+    console.error(colorize('❌ Please specify input 请指定输入目录: --input <directory>', 'red'))
+    console.log(colorize('   Use --help for more info 使用 --help 查看帮助', 'gray'))
     process.exit(1)
   }
 
-  const inputDir = path.resolve(args.input)
-  const imageFiles = getImageFiles(inputDir)
+  const inputPath = path.resolve(args.input)
+  const imageFiles = getImageFiles(inputPath)
 
-  console.log(colorize('\n🖼️  图片去水印工具', 'bright'))
+  const isSingleFile = fs.statSync(inputPath).isFile()
+
+  console.log(colorize('\n🖼️  Image Watermark Removal Tool 图片去水印工具', 'bright'))
   console.log(colorize('='.repeat(50), 'gray'))
-  console.log(colorize(`📁 输入目录: ${inputDir}`, 'cyan'))
-  console.log(colorize(`🖼️  发现 ${imageFiles.length} 张图片\n`, 'cyan'))
+  console.log(colorize(`📁 Input 输入: ${inputPath}`, 'cyan'))
+  console.log(colorize(`🖼️  Found 发现 ${imageFiles.length} images 张图片\n`, 'cyan'))
 
   const rl = createInterface()
 
@@ -458,37 +385,42 @@ async function main(): Promise<void> {
   const mode = (args.mode || (args.yes ? 'overwrite' : await askMode(rl))) as 'overwrite' | 'new-dir'
   const quality = args.quality || 85
 
-  let outputDir = inputDir
+  let outputDir = inputPath
   if (mode === 'new-dir') {
-    const targetDir = args.output || path.join(inputDir, 'cleaned')
-    outputDir = ensureUniqueDir(targetDir)
+    if (isSingleFile) {
+      const targetDir = args.output || path.join(path.dirname(inputPath), 'cleaned')
+      outputDir = ensureUniqueDir(targetDir)
+    } else {
+      const targetDir = args.output || path.join(inputPath, 'cleaned')
+      outputDir = ensureUniqueDir(targetDir)
+    }
   }
 
   // Show summary
-  console.log(colorize('\n📋 操作摘要:', 'bright'))
-  console.log(`   输入目录: ${inputDir}`)
-  console.log(`   输出模式: ${mode === 'overwrite' ? '覆盖原图' : `新目录 (${outputDir})`}`)
-  console.log(`   目标区域: ${regionStr}`)
-  console.log(`   检测灵敏度: ${threshold}`)
-  console.log(`   去除强度: ${Math.round(strength * 100)}%`)
-  console.log(`   输出格式: ${format === 'keep' ? '保持原格式' : format}`)
-  console.log(`   图片数量: ${imageFiles.length} 张`)
+  console.log(colorize('\n📋 Operation Summary 操作摘要:', 'bright'))
+  console.log(`   Input 输入: ${inputPath}`)
+  console.log(`   Output mode 输出模式: ${mode === 'overwrite' ? 'Overwrite original 覆盖原图' : `New directory 新目录 (${outputDir})`}`)
+  console.log(`   Target region 目标区域: ${regionStr}`)
+  console.log(`   Detection sensitivity 检测灵敏度: ${threshold}`)
+  console.log(`   Removal strength 去除强度: ${Math.round(strength * 100)}%`)
+  console.log(`   Output format 输出格式: ${format === 'keep' ? 'Keep original 保持原格式' : format}`)
+  console.log(`   Images 图片数量: ${imageFiles.length} 张`)
 
   // Confirm if not --yes
   let confirmed = args.yes
   if (!confirmed) {
-    const answer = await question(rl, colorize('\n⚠️  此操作不可撤销，建议先备份原图，确认执行? (y/N): ', 'yellow'))
+    const answer = await question(rl, colorize('\n⚠️  This cannot be undone. Confirm? 此操作不可撤销，确认执行? (y/N): ', 'yellow'))
     confirmed = answer.toLowerCase() === 'y'
   }
   rl.close()
 
   if (!confirmed) {
-    console.log(colorize('已取消', 'gray'))
+    console.log(colorize('Cancelled 已取消', 'gray'))
     process.exit(0)
   }
 
   // Process images
-  console.log(colorize('\n🖼️  开始处理...\n', 'bright'))
+  console.log(colorize('\n🖼️  Processing 处理中...\n', 'bright'))
 
   let successCount = 0
   let failCount = 0
@@ -502,7 +434,7 @@ async function main(): Promise<void> {
     const outputPath = mode === 'overwrite' ? inputPath : path.join(outputDir, outputFilename)
 
     process.stdout.write(
-      `   ${colorize('▶', 'cyan')} 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
+      `   ${colorize('▶', 'cyan')} Processing 处理 [${i + 1}/${imageFiles.length}] ${filename} ... `
     )
 
     try {
@@ -525,16 +457,16 @@ async function main(): Promise<void> {
 
   // Summary
   console.log(colorize('\n' + '='.repeat(50), 'gray'))
-  console.log(colorize('✅ 处理完成!', 'bright'))
-  console.log(`   成功: ${colorize(successCount, 'green')} 张`)
-  console.log(`   失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
+  console.log(colorize('✅ Done 完成!', 'bright'))
+  console.log(`   Success 成功: ${colorize(successCount, 'green')} 张`)
+  console.log(`   Failed 失败: ${colorize(failCount, failCount > 0 ? 'red' : 'green')} 张`)
 
   if (failures.length > 0) {
-    console.log(colorize('\n❌ 失败列表:', 'red'))
+    console.log(colorize('\n❌ Failed files 失败列表:', 'red'))
     failures.forEach(f => console.log(`   - ${f}`))
   }
 
-  console.log(colorize('\n💡 提示: 去水印效果因图片而异，对于复杂水印可能需要使用专业工具', 'gray'))
+  console.log(colorize('\n💡 Tip 提示: Watermark removal 效果因图片而异，对于复杂水印可能需要使用专业工具效果因图片而异，对于复杂水印可能需要使用专业工具', 'gray'))
 
   process.exit(failCount > 0 ? 1 : 0)
 }

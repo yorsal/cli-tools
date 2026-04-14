@@ -12,6 +12,10 @@
 - [crop-images](#图片批量裁剪-crop-images) - 批量裁剪图片为指定宽高比
 - [add-watermark](#图片水印-add-watermark) - 为图片添加文字或图片水印
 - [remove-watermark](#图片去水印-remove-watermark) - 移除或淡化图片中的水印
+- [resize-images](#图片批量缩放-resize-images) - 按尺寸/比例/最长边批量缩放图片
+- [adjust-colors](#图片调色-adjust-colors) - 调整亮度、对比度、饱和度并应用滤镜
+- [blur-mosaic](#图片模糊马赛克-blur-mosaic) - 对图片应用模糊或马赛克效果
+- [rotate-flip](#图片旋转翻转-rotate-flip) - 旋转和翻转图片
 
 ### 视频工具
 - [video-convert](#视频批量转换-video-convert) - 转换视频格式
@@ -188,6 +192,228 @@ tsx image/remove-watermark.ts -i ./images -m new-dir -o ./images/cleaned
 - 效果因水印类型和图片复杂程度而异
 - 强度越高可能会影响图片质量
 - **建议：处理前先备份原图**
+
+---
+
+## 图片批量缩放 (resize-images)
+
+批量缩放图片，支持多种缩放模式。
+
+### 使用方法
+
+```bash
+tsx image/resize-images.ts --input <目录> [选项]
+```
+
+### 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-i, --input <目录>` | 图片源目录 | 必填 |
+| `-W, --width <像素>` | 目标宽度 | - |
+| `-h, --height <像素>` | 目标高度 | - |
+| `-p, --percent <数字>` | 缩放百分比 (50=缩小一半, 200=放大两倍) | - |
+| `-l, --longest-edge <像素>` | 最长边缩放到此值 | - |
+| `-f, --format <格式>` | 输出格式: jpg, png, webp, keep | keep |
+| `-m, --mode <模式>` | 输出模式: overwrite, new-dir | overwrite |
+| `-o, --output <目录>` | 输出目录 (mode=new-dir 时必填) | - |
+| `-q, --quality <数字>` | 输出质量 1-100 | 85 |
+| `-y, --yes` | 跳过所有确认提示 | false |
+| `-H, --help` | 显示帮助信息 | - |
+
+### 示例
+
+```bash
+# 按百分比缩放（缩小一半）
+tsx image/resize-images.ts -i ./images --percent 50 --yes
+
+# 缩放到精确尺寸
+tsx image/resize-images.ts -i ./images -W 800 -h 600 --yes
+
+# 按最长边缩放（最大 1920px）
+tsx image/resize-images.ts -i ./images --longest-edge 1920 -m new-dir -o ./images/resized
+
+# 转为 webp 并设置高质量
+tsx image/resize-images.ts -i ./images -f webp -q 90 --yes
+```
+
+### 说明
+
+- 宽高和百分比模式互斥
+- 最长边模式保持宽高比（如 1920x1080，最长边=1280 → 1280x720）
+- 小于目标尺寸的图片在最长边模式下保持原样复制
+
+---
+
+## 图片调色 (adjust-colors)
+
+调整亮度、对比度、饱和度，并应用滤镜效果。
+
+### 使用方法
+
+```bash
+tsx image/adjust-colors.ts --input <目录> [选项]
+```
+
+### 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-i, --input <目录>` | 图片源目录 | 必填 |
+| `-b, --brightness <数字>` | 亮度 -100 到 100 | 0 |
+| `-c, --contrast <数字>` | 对比度 -100 到 100 | 0 |
+| `-s, --saturation <数字>` | 饱和度 -100 到 100 | 0 |
+| `--grayscale` | 转为灰度 | - |
+| `--sepia` | 应用复古色调 | - |
+| `--sharpen` | 锐化图片 | - |
+| `--blur` | 应用轻度高斯模糊 | - |
+| `-f, --format <格式>` | 输出格式: jpg, png, webp, keep | keep |
+| `-m, --mode <模式>` | 输出模式: overwrite, new-dir | overwrite |
+| `-o, --output <目录>` | 输出目录 (mode=new-dir 时必填) | - |
+| `-q, --quality <数字>` | 输出质量 1-100 | 85 |
+| `-y, --yes` | 跳过所有确认提示 | false |
+| `-H, --help` | 显示帮助信息 | - |
+
+### 示例
+
+```bash
+# 提亮图片
+tsx image/adjust-colors.ts -i ./images --brightness 30 --yes
+
+# 增加对比度和饱和度
+tsx image/adjust-colors.ts -i ./images -c 20 -s 50 --yes
+
+# 应用灰度滤镜
+tsx image/adjust-colors.ts -i ./images --grayscale -m new-dir -o ./images/bw
+
+# 应用复古色调
+tsx image/adjust-colors.ts -i ./images --sepia --yes
+
+# 组合调色和滤镜
+tsx image/adjust-colors.ts -i ./images -b 10 -c 15 --sharpen -f jpg --yes
+```
+
+### 说明
+
+- 调色参数（亮度、对比度、饱和度）和滤镜可以组合使用
+- 滤镜在数值调整之后应用
+- 负数减少，正数增加
+
+---
+
+## 图片模糊/马赛克 (blur-mosaic)
+
+对图片应用模糊或马赛克效果，支持区域定位。
+
+### 使用方法
+
+```bash
+tsx image/blur-mosaic.ts --input <目录> [选项]
+```
+
+### 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-i, --input <目录>` | 图片源目录 | 必填 |
+| `-B, --blur <半径>` | 高斯模糊半径 1-100 | - |
+| `-M, --mosaic <大小>` | 马赛克像素大小 2-50 | - |
+| `-r, --region <区域>` | 目标区域: all, top, bottom, left, right, corner | all |
+| `--rect <x,y,w,h>` | 自定义矩形 (x,y,宽度,高度，单位像素) | - |
+| `-f, --format <格式>` | 输出格式: jpg, png, webp, keep | keep |
+| `-m, --mode <模式>` | 输出模式: overwrite, new-dir | overwrite |
+| `-o, --output <目录>` | 输出目录 (mode=new-dir 时必填) | - |
+| `-q, --quality <数字>` | 输出质量 1-100 | 85 |
+| `-y, --yes` | 跳过所有确认提示 | false |
+| `-H, --help` | 显示帮助信息 | - |
+
+### 区域预设
+
+| 区域 | 说明 |
+|------|------|
+| `all` | 整张图片（默认） |
+| `top` | 图片顶部 20% |
+| `bottom` | 图片底部 20% |
+| `left` | 图片左侧 20% |
+| `right` | 图片右侧 20% |
+| `corner` | 右下角 25% x 25% |
+
+### 示例
+
+```bash
+# 模糊整张图片
+tsx image/blur-mosaic.ts -i ./images --blur 10 --yes
+
+# 对角落应用马赛克（隐私处理）
+tsx image/blur-mosaic.ts -i ./images --mosaic 8 -r corner --yes
+
+# 模糊自定义区域
+tsx image/blur-mosaic.ts -i ./images --blur 15 --rect 100,100,200,200 -m new-dir -o ./output
+
+# 对底部区域应用马赛克
+tsx image/blur-mosaic.ts -i ./images --mosaic 12 -r bottom --yes
+```
+
+### 说明
+
+- 模糊和马赛克互斥（使用 -B 或 -M，不能同时使用）
+- 自定义矩形格式: x,y,宽度,高度（单位像素）
+- 适用于隐藏敏感信息（车牌、人脸等）
+
+---
+
+## 图片旋转/翻转 (rotate-flip)
+
+旋转和翻转图片，支持多种旋转角度。
+
+### 使用方法
+
+```bash
+tsx image/rotate-flip.ts --input <目录> [选项]
+```
+
+### 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-i, --input <目录>` | 图片源目录 | 必填 |
+| `--rotate-90` | 顺时针旋转 90 度 | - |
+| `--rotate-180` | 旋转 180 度 | - |
+| `--rotate-270` | 顺时针旋转 270 度 | - |
+| `--rotate-custom <角度>` | 自定义角度旋转 (0-360) | - |
+| `--flip-horizontal` | 沿垂直轴镜像 | - |
+| `--flip-vertical` | 沿水平轴镜像 | - |
+| `-f, --format <格式>` | 输出格式: jpg, png, webp, keep | keep |
+| `-m, --mode <模式>` | 输出模式: overwrite, new-dir | overwrite |
+| `-o, --output <目录>` | 输出目录 (mode=new-dir 时必填) | - |
+| `-q, --quality <数字>` | 输出质量 1-100 | 85 |
+| `-y, --yes` | 跳过所有确认提示 | false |
+| `-H, --help` | 显示帮助信息 | - |
+
+### 示例
+
+```bash
+# 顺时针旋转 90 度
+tsx image/rotate-flip.ts -i ./images --rotate-90 --yes
+
+# 水平翻转（镜像）
+tsx image/rotate-flip.ts -i ./images --flip-horizontal --yes
+
+# 旋转 180 度
+tsx image/rotate-flip.ts -i ./images --rotate-180 -m new-dir -o ./images/rotated
+
+# 组合旋转和翻转
+tsx image/rotate-flip.ts -i ./images --rotate-90 --flip-horizontal --yes
+
+# 自定义角度旋转
+tsx image/rotate-flip.ts -i ./images --rotate-custom 45 --yes
+```
+
+### 说明
+
+- 旋转和翻转可以组合使用
+- 自定义旋转会自动调整画布（不会裁剪）
+- 可用于校正方向或创建镜像效果
 
 ---
 
