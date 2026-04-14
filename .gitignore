@@ -31,3 +31,6 @@ mlx_models/
 
 # AI
 .claude/
+
+# Worktrees
+.worktrees/
