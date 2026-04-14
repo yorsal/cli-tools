@@ -109,6 +109,8 @@ async function question(rl: readline.Interface, prompt: string): Promise<string>
 const RATIO_PRESETS: Record<string, [number, number]> = {
   '16:9': [16, 9],
   '4:3': [4, 3],
+  '3:4': [3, 4],
+  '9:16': [9, 16],
   '1:1': [1, 1],
 }
 
@@ -130,14 +132,18 @@ function askRatio(rl: readline.Interface): Promise<string> {
     console.log(colorize('\n❓ 裁剪比例:', 'bright'))
     console.log('   1) 16:9')
     console.log('   2) 4:3')
-    console.log('   3) 1:1')
-    console.log('   4) 自定义 (输入 W:H)')
-    question(rl, '\n请选择 (1-4): ').then(answer => {
+    console.log('   3) 3:4')
+    console.log('   4) 9:16')
+    console.log('   5) 1:1')
+    console.log('   6) 自定义 (输入 W:H)')
+    question(rl, '\n请选择 (1-6): ').then(answer => {
       switch (answer) {
         case '1': resolve('16:9'); break
         case '2': resolve('4:3'); break
-        case '3': resolve('1:1'); break
-        case '4':
+        case '3': resolve('3:4'); break
+        case '4': resolve('9:16'); break
+        case '5': resolve('1:1'); break
+        case '6':
           question(rl, '请输入比例 (如 3:2): ').then(r => resolve(r))
           break
         default: resolve('16:9')
@@ -245,93 +251,112 @@ async function centerCrop(
   maxWidth?: number,
   maxHeight?: number
 ): Promise<void> {
-  const image = sharp(inputPath)
-  const metadata = await image.metadata()
+  // When input and output are the same file, write to a temp file first then rename
+  // to avoid "Cannot use same file for input and output" error
+  const useTempFile = inputPath === outputPath
+  const tempPath = useTempFile ? `${inputPath}.tmp.${Date.now()}` : null
 
-  if (!metadata.width || !metadata.height) {
-    throw new Error(`无法读取图片尺寸: ${inputPath}`)
-  }
+  try {
+    const image = sharp(inputPath)
+    const metadata = await image.metadata()
 
-  const [targetW, targetH] = targetRatio
-  const targetRatioValue = targetW / targetH
-  const currentRatioValue = metadata.width / metadata.height
+    if (!metadata.width || !metadata.height) {
+      throw new Error(`无法读取图片尺寸: ${inputPath}`)
+    }
 
-  // Resize if image exceeds max dimensions while maintaining aspect ratio
-  let resizeWidth = metadata.width
-  let resizeHeight = metadata.height
+    const [targetW, targetH] = targetRatio
+    const targetRatioValue = targetW / targetH
+    const currentRatioValue = metadata.width / metadata.height
 
-  if (maxWidth && maxHeight) {
-    const maxRatio = maxWidth / maxHeight
+    // Resize if image exceeds max dimensions while maintaining aspect ratio
+    let resizeWidth = metadata.width
+    let resizeHeight = metadata.height
 
-    // If image is larger than max dimensions in either direction
-    if (metadata.width > maxWidth || metadata.height > maxHeight) {
-      if (currentRatioValue > maxRatio) {
-        // Image is wider than max - constrain by width
-        resizeWidth = maxWidth
-        resizeHeight = Math.round(maxWidth / currentRatioValue)
-      } else {
-        // Image is taller than max - constrain by height
-        resizeHeight = maxHeight
-        resizeWidth = Math.round(maxHeight * currentRatioValue)
+    if (maxWidth && maxHeight) {
+      const maxRatio = maxWidth / maxHeight
+
+      // If image is larger than max dimensions in either direction
+      if (metadata.width > maxWidth || metadata.height > maxHeight) {
+        if (currentRatioValue > maxRatio) {
+          // Image is wider than max - constrain by width
+          resizeWidth = maxWidth
+          resizeHeight = Math.round(maxWidth / currentRatioValue)
+        } else {
+          // Image is taller than max - constrain by height
+          resizeHeight = maxHeight
+          resizeWidth = Math.round(maxHeight * currentRatioValue)
+        }
+      }
+    } else if (maxWidth && metadata.width > maxWidth) {
+      resizeWidth = maxWidth
+      resizeHeight = Math.round(maxWidth / currentRatioValue)
+    } else if (maxHeight && metadata.height > maxHeight) {
+      resizeHeight = maxHeight
+      resizeWidth = Math.round(maxHeight * currentRatioValue)
+    }
+
+    // Calculate crop dimensions based on resized image
+    let cropWidth: number
+    let cropHeight: number
+
+    if (currentRatioValue > targetRatioValue) {
+      // Image is wider than target - crop width
+      cropHeight = resizeHeight
+      cropWidth = Math.round(resizeHeight * targetRatioValue)
+    } else {
+      // Image is taller than target - crop height
+      cropWidth = resizeWidth
+      cropHeight = Math.round(resizeWidth / targetRatioValue)
+    }
+
+    // Calculate center position
+    const left = Math.round((resizeWidth - cropWidth) / 2)
+    const top = Math.round((resizeHeight - cropHeight) / 2)
+
+    let pipeline = sharp(inputPath)
+
+    // Resize first if needed
+    if (resizeWidth !== metadata.width || resizeHeight !== metadata.height) {
+      pipeline = pipeline.resize(resizeWidth, resizeHeight, { fit: 'fill' })
+    }
+
+    pipeline = pipeline
+      .extract({ left, top, width: cropWidth, height: cropHeight })
+
+    // Determine output format
+    const originalExt = path.extname(inputPath).toLowerCase()
+
+    if (format !== 'keep') {
+      const formatMap: Record<string, 'jpeg' | 'png' | 'webp'> = {
+        jpg: 'jpeg',
+        png: 'png',
+        webp: 'webp',
+      }
+      pipeline = pipeline.toFormat(formatMap[format], { quality })
+    } else {
+      if (originalExt === '.jpg' || originalExt === '.jpeg') {
+        pipeline = pipeline.jpeg({ quality })
+      } else if (originalExt === '.png') {
+        pipeline = pipeline.png()
+      } else if (originalExt === '.webp') {
+        pipeline = pipeline.webp({ quality })
       }
     }
-  } else if (maxWidth && metadata.width > maxWidth) {
-    resizeWidth = maxWidth
-    resizeHeight = Math.round(maxWidth / currentRatioValue)
-  } else if (maxHeight && metadata.height > maxHeight) {
-    resizeHeight = maxHeight
-    resizeWidth = Math.round(maxHeight * currentRatioValue)
-  }
 
-  // Calculate crop dimensions based on resized image
-  let cropWidth: number
-  let cropHeight: number
+    const finalOutputPath = tempPath || outputPath
+    await pipeline.toFile(finalOutputPath)
 
-  if (currentRatioValue > targetRatioValue) {
-    // Image is wider than target - crop width
-    cropHeight = resizeHeight
-    cropWidth = Math.round(resizeHeight * targetRatioValue)
-  } else {
-    // Image is taller than target - crop height
-    cropWidth = resizeWidth
-    cropHeight = Math.round(resizeWidth / targetRatioValue)
-  }
-
-  // Calculate center position
-  const left = Math.round((resizeWidth - cropWidth) / 2)
-  const top = Math.round((resizeHeight - cropHeight) / 2)
-
-  let pipeline = sharp(inputPath)
-
-  // Resize first if needed
-  if (resizeWidth !== metadata.width || resizeHeight !== metadata.height) {
-    pipeline = pipeline.resize(resizeWidth, resizeHeight, { fit: 'fill' })
-  }
-
-  pipeline = pipeline
-    .extract({ left, top, width: cropWidth, height: cropHeight })
-
-  // Determine output format
-  const originalExt = path.extname(inputPath).toLowerCase()
-
-  if (format !== 'keep') {
-    const formatMap: Record<string, 'jpeg' | 'png' | 'webp'> = {
-      jpg: 'jpeg',
-      png: 'png',
-      webp: 'webp',
+    // If using temp file, rename to final path (atomic on most systems)
+    if (useTempFile && tempPath) {
+      fs.renameSync(tempPath, outputPath)
     }
-    pipeline = pipeline.toFormat(formatMap[format], { quality })
-  } else {
-    if (originalExt === '.jpg' || originalExt === '.jpeg') {
-      pipeline = pipeline.jpeg({ quality })
-    } else if (originalExt === '.png') {
-      pipeline = pipeline.png()
-    } else if (originalExt === '.webp') {
-      pipeline = pipeline.webp({ quality })
+  } catch (err) {
+    // Clean up temp file on error
+    if (tempPath && fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath)
     }
+    throw err
   }
-
-  await pipeline.toFile(outputPath)
 }
 
 async function main(): Promise<void> {
@@ -376,7 +401,9 @@ async function main(): Promise<void> {
     outputDir = ensureUniqueDir(targetDir)
   }
 
-  const format = (args.format || (args.yes ? 'keep' : await askFormat(rl))) as 'jpg' | 'png' | 'webp' | 'keep'
+  const format = (mode === 'overwrite' || args.format === 'keep')
+    ? 'keep'
+    : (args.format || (args.yes ? 'keep' : await askFormat(rl))) as 'jpg' | 'png' | 'webp' | 'keep'
   const quality = args.quality || 85
   const maxSize = args.maxWidth || args.maxHeight
     ? { maxWidth: args.maxWidth, maxHeight: args.maxHeight }

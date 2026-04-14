@@ -7,6 +7,7 @@
     "crop-images": "./image/crop-images.ts",
     "add-watermark": "./image/add-watermark.ts",
     "remove-watermark": "./image/remove-watermark.ts",
+    "images-to-pdf": "./image/images-to-pdf.ts",
     "video-convert": "./video/video-convert.ts",
     "video-transcribe": "./video/video-transcribe.ts",
     "video-dedup": "./video/video-dedup.ts"
@@ -16,11 +17,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "glob": "^13.0.6",
+    "pdfkit": "^0.18.0",
     "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.0.0",
+    "@types/pdfkit": "^0.17.5",
     "eslint": "^10.2.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",

@@ -12,6 +12,7 @@ Jump to any tool quickly:
 - [crop-images](#image-batch-crop-crop-images) - Batch crop images to a specified aspect ratio
 - [add-watermark](#image-watermark-add-watermark) - Add text or image watermark to images
 - [remove-watermark](#image-watermark-removal-remove-watermark) - Remove or reduce watermark visibility
+- [images-to-pdf](#images-to-pdf-images-to-pdf) - Combine multiple images into a single PDF
 
 ### Video Tools
 - [video-convert](#video-batch-convert-video-convert) - Convert video files to different formats
@@ -188,6 +189,55 @@ tsx image/remove-watermark.ts -i ./images -m new-dir -o ./images/cleaned
 - Results vary depending on watermark type and image complexity
 - Higher strength may affect image quality
 - **Recommendation: Back up original images before processing**
+
+---
+
+## Images to PDF (images-to-pdf)
+
+Combine multiple images into a single PDF file, with one image per page.
+
+### Usage
+
+```bash
+tsx image/images-to-pdf.ts --input <images...|directories...> --output <output.pdf> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-i, --input <paths...>` | Input images, directories, or glob patterns | Required |
+| `-o, --output <file>` | Output PDF file | Required |
+| `-l, --layout <mode>` | Page layout: portrait, landscape, auto | auto |
+| `-s, --page-size <size>` | Page size: A4, Letter, Legal, A3 | A4 |
+| `-m, --margin <pixels>` | Page margin | 0 |
+| `-q, --quality <1-100>` | JPEG compression quality | 85 |
+| `-g, --gap <pixels>` | Gap between images | 0 |
+| `-y, --yes` | Skip all confirmation prompts | false |
+| `-H, --help` | Show help message | - |
+
+### Examples
+
+```bash
+# Combine images from a directory
+tsx image/images-to-pdf.ts -i ./photos -o output.pdf
+
+# Specify multiple files
+tsx image/images-to-pdf.ts -i photo1.jpg photo2.jpg photo3.jpg -o output.pdf
+
+# Use glob patterns
+tsx image/images-to-pdf.ts -i "*.jpg" -o photos.pdf
+
+# Landscape A4 with margin
+tsx image/images-to-pdf.ts -i ./images -o output.pdf -l landscape -s A4 -m 20
+```
+
+### Notes
+
+- Each image occupies one page
+- `auto` layout scales images to fit while maintaining aspect ratio
+- Images are sorted by filename using natural sort order
+- Supports: jpg, jpeg, png, webp, gif, avif, tiff, bmp
 
 ---
 
